@@ -20,17 +20,19 @@ interface Order {
   order_date: string;
 }
 
-// Next.js 15+ এর জন্য আপডেটেড সিনট্যাক্স
+/* =========================
+   PATCH
+========================= */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params; // await করতে হবে
-    
-    const supabase = await createClient(); // await যোগ করা হয়েছে
+    const { id } = await context.params;
+
+    const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    
+
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -42,7 +44,6 @@ export async function PATCH(
       return NextResponse.json({ error: 'Status is required' }, { status: 400 });
     }
 
-    // Check if user is merchant
     const { data: roles } = await supabase
       .from('user_roles')
       .select('role')
@@ -76,16 +77,19 @@ export async function PATCH(
   }
 }
 
+/* =========================
+   GET
+========================= */
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
-    
-    const supabase = await createClient(); // await যোগ করা হয়েছে
+    const { id } = await context.params;
+
+    const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    
+
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -105,21 +109,23 @@ export async function GET(
   }
 }
 
+/* =========================
+   DELETE
+========================= */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
-    
-    const supabase = await createClient(); // await যোগ করা হয়েছে
+    const { id } = await context.params;
+
+    const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    
+
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user is admin or merchant who owns this order
     const { data: roles } = await supabase
       .from('user_roles')
       .select('role')
@@ -129,9 +135,8 @@ export async function DELETE(
       };
 
     const isAdmin = roles?.some((r: UserRole) => r.role === 'admin');
-    
+
     if (!isAdmin) {
-      // Check if merchant owns this order
       const { data: order } = await supabase
         .from('orders')
         .select('merchant_id')
@@ -149,7 +154,10 @@ export async function DELETE(
           .single();
 
         if (!merchant || order.merchant_id !== merchant.id) {
-          return NextResponse.json({ error: 'Unauthorized to delete this order' }, { status: 403 });
+          return NextResponse.json(
+            { error: 'Unauthorized to delete this order' },
+            { status: 403 }
+          );
         }
       } else {
         return NextResponse.json({ error: 'Order not found' }, { status: 404 });

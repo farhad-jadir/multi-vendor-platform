@@ -20,16 +20,19 @@ interface UserRole {
   role: string;
 }
 
+/* =========================
+   GET PRODUCT
+========================= */
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
-    
-    const supabase = await createClient(); // await যোগ করা হয়েছে
+    const { id } = await context.params;
+
+    const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    
+
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -52,21 +55,23 @@ export async function GET(
   }
 }
 
+/* =========================
+   UPDATE PRODUCT
+========================= */
 export async function PUT(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
-    
-    const supabase = await createClient(); // await যোগ করা হয়েছে
+    const { id } = await context.params;
+
+    const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    
+
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user is merchant and owns this product
     const { data: roles } = await supabase
       .from('user_roles')
       .select('role')
@@ -81,7 +86,6 @@ export async function PUT(
       return NextResponse.json({ error: 'Only merchants can update products' }, { status: 403 });
     }
 
-    // Get merchant id
     const { data: merchant } = await supabase
       .from('merchants')
       .select('id')
@@ -92,7 +96,6 @@ export async function PUT(
       return NextResponse.json({ error: 'Merchant profile not found' }, { status: 404 });
     }
 
-    // Check if product belongs to this merchant
     const { data: existingProduct } = await supabase
       .from('products')
       .select('merchant_id')
@@ -113,7 +116,6 @@ export async function PUT(
     const body = await request.json();
     const { name, description, price, stock_quantity, category, images, is_available } = body;
 
-    // Validate required fields
     if (!name || price === undefined || stock_quantity === undefined) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
@@ -146,21 +148,23 @@ export async function PUT(
   }
 }
 
+/* =========================
+   DELETE PRODUCT
+========================= */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
-    
-    const supabase = await createClient(); // await যোগ করা হয়েছে
+    const { id } = await context.params;
+
+    const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    
+
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user is merchant
     const { data: roles } = await supabase
       .from('user_roles')
       .select('role')
@@ -175,7 +179,6 @@ export async function DELETE(
       return NextResponse.json({ error: 'Only merchants can delete products' }, { status: 403 });
     }
 
-    // Get merchant id
     const { data: merchant } = await supabase
       .from('merchants')
       .select('id')
@@ -186,7 +189,6 @@ export async function DELETE(
       return NextResponse.json({ error: 'Merchant profile not found' }, { status: 404 });
     }
 
-    // Check if product belongs to this merchant
     const { data: existingProduct } = await supabase
       .from('products')
       .select('merchant_id')
@@ -204,7 +206,6 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized to delete this product' }, { status: 403 });
     }
 
-    // Optional: Check if product has any pending orders before deleting
     const { data: orders } = await supabase
       .from('orders')
       .select('id')
@@ -213,8 +214,8 @@ export async function DELETE(
       .limit(1);
 
     if (orders && orders.length > 0) {
-      return NextResponse.json({ 
-        error: 'Cannot delete product with pending orders' 
+      return NextResponse.json({
+        error: 'Cannot delete product with pending orders'
       }, { status: 400 });
     }
 
