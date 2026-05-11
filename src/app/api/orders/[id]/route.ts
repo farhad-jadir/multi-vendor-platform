@@ -1,234 +1,151 @@
 import { createClient } from '../../../../lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
 
-// Define types
-interface Product {
-  id: string;
-  name: string;
-  description: string | null;
-  price: number;
-  stock_quantity: number;
-  category: string | null;
-  images: string[] | null;
-  is_available: boolean;
-  merchant_id: string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface UserRole {
-  role: string;
-}
-
-/* =========================
-   GET PRODUCT
-========================= */
+// GET - নির্দিষ্ট অর্ডার দেখার জন্য
 export async function GET(
   request: NextRequest,
-  context: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await context.params;
-
-    const supabase = await createClient();
+    const { id } = await params;
+    
+    // createClient() এর আগে await যোগ করা হয়েছে
+    const supabase = await createClient(); 
     const { data: { user } } = await supabase.auth.getUser();
-
+    
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: product, error } = await supabase
-      .from('products')
-      .select('*')
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select(`
+        *,
+        product:product_id (id, name, description, price, images),
+        merchant:merchant_id (id, business_name, slug),
+        customer:customer_id (id, full_name, email)
+      `)
       .eq('id', id)
-      .single() as {
-        data: Product | null;
-        error: any;
-      };
+      .single();
 
     if (error) throw error;
 
-    return NextResponse.json(product);
-  } catch (error) {
-    console.error('Fetch product error:', error);
-    return NextResponse.json({ error: 'Failed to fetch product' }, { status: 500 });
-  }
-}
-
-/* =========================
-   UPDATE PRODUCT
-========================= */
-export async function PUT(
-  request: NextRequest,
-  context: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await context.params;
-
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
+    // Check authorization
     const { data: roles } = await supabase
       .from('user_roles')
       .select('role')
-      .eq('user_id', user.id) as {
-        data: UserRole[] | null;
-        error: any;
-      };
+      .eq('user_id', user.id);
 
-    const isMerchant = roles?.some((r: UserRole) => r.role === 'merchant');
-
-    if (!isMerchant) {
-      return NextResponse.json({ error: 'Only merchants can update products' }, { status: 403 });
+    const isMerchant = roles?.some((r: any) => r.role === 'merchant');
+    
+    if (!isMerchant && order.customer_id !== user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const { data: merchant } = await supabase
-      .from('merchants')
-      .select('id')
-      .eq('user_id', user.id)
-      .single();
+    return NextResponse.json(order);
+  } catch (error: any) {
+    console.error('Fetch order error:', error);
+    return NextResponse.json({ error: error.message || 'Failed to fetch order' }, { status: 500 });
+  }
+}
 
-    if (!merchant) {
-      return NextResponse.json({ error: 'Merchant profile not found' }, { status: 404 });
-    }
-
-    const { data: existingProduct } = await supabase
-      .from('products')
-      .select('merchant_id')
-      .eq('id', id)
-      .single() as {
-        data: { merchant_id: string } | null;
-        error: any;
-      };
-
-    if (!existingProduct) {
-      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
-    }
-
-    if (existingProduct.merchant_id !== merchant.id) {
-      return NextResponse.json({ error: 'Unauthorized to update this product' }, { status: 403 });
+// PATCH - অর্ডার স্ট্যাটাস আপডেট করার জন্য (মার্চেন্ট শুধু)
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    
+    // await যোগ করা হয়েছে
+    const supabase = await createClient(); 
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
-    const { name, description, price, stock_quantity, category, images, is_available } = body;
+    const { status } = body;
 
-    if (!name || price === undefined || stock_quantity === undefined) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    if (!status) {
+      return NextResponse.json({ error: 'Status is required' }, { status: 400 });
     }
 
-    const { data: product, error } = await supabase
-      .from('products')
-      .update({
-        name,
-        description: description || null,
-        price,
-        stock_quantity,
-        category: category || null,
-        images: images || [],
-        is_available: is_available !== undefined ? is_available : true,
-        updated_at: new Date().toISOString()
-      })
+    // Check if user is merchant
+    const { data: roles } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id);
+
+    const isMerchant = roles?.some((r: any) => r.role === 'merchant');
+
+    if (!isMerchant) {
+      return NextResponse.json({ error: 'Only merchants can update orders' }, { status: 403 });
+    }
+
+    const { data: order, error } = await supabase
+      .from('orders')
+      .update({ status, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
-      .single() as {
-        data: Product | null;
-        error: any;
-      };
+      .single();
 
     if (error) throw error;
 
-    return NextResponse.json(product);
-  } catch (error) {
-    console.error('Update product error:', error);
-    return NextResponse.json({ error: 'Failed to update product' }, { status: 500 });
+    return NextResponse.json(order);
+  } catch (error: any) {
+    console.error('Order update error:', error);
+    return NextResponse.json({ error: error.message || 'Failed to update order' }, { status: 500 });
   }
 }
 
-/* =========================
-   DELETE PRODUCT
-========================= */
+// DELETE - অর্ডার ডিলিট করার জন্য (কেবল কাস্টমার নিজের অর্ডার)
 export async function DELETE(
   request: NextRequest,
-  context: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await context.params;
-
-    const supabase = await createClient();
+    const { id } = await params;
+    
+    // await যোগ করা হয়েছে
+    const supabase = await createClient(); 
     const { data: { user } } = await supabase.auth.getUser();
-
+    
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: roles } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id) as {
-        data: UserRole[] | null;
-        error: any;
-      };
-
-    const isMerchant = roles?.some((r: UserRole) => r.role === 'merchant');
-
-    if (!isMerchant) {
-      return NextResponse.json({ error: 'Only merchants can delete products' }, { status: 403 });
-    }
-
-    const { data: merchant } = await supabase
-      .from('merchants')
-      .select('id')
-      .eq('user_id', user.id)
+    // Check if order belongs to the user
+    const { data: order } = await supabase
+      .from('orders')
+      .select('customer_id, status')
+      .eq('id', id)
       .single();
 
-    if (!merchant) {
-      return NextResponse.json({ error: 'Merchant profile not found' }, { status: 404 });
+    if (!order) {
+      return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
-    const { data: existingProduct } = await supabase
-      .from('products')
-      .select('merchant_id')
-      .eq('id', id)
-      .single() as {
-        data: { merchant_id: string } | null;
-        error: any;
-      };
-
-    if (!existingProduct) {
-      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
+    if (order.customer_id !== user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    if (existingProduct.merchant_id !== merchant.id) {
-      return NextResponse.json({ error: 'Unauthorized to delete this product' }, { status: 403 });
-    }
-
-    const { data: orders } = await supabase
-      .from('orders')
-      .select('id')
-      .eq('product_id', id)
-      .in('status', ['pending', 'processing'])
-      .limit(1);
-
-    if (orders && orders.length > 0) {
-      return NextResponse.json({
-        error: 'Cannot delete product with pending orders'
-      }, { status: 400 });
+    // Only pending orders can be deleted
+    if (order.status !== 'pending') {
+      return NextResponse.json({ error: 'Only pending orders can be cancelled' }, { status: 400 });
     }
 
     const { error } = await supabase
-      .from('products')
+      .from('orders')
       .delete()
       .eq('id', id);
 
     if (error) throw error;
 
-    return NextResponse.json({ message: 'Product deleted successfully' });
-  } catch (error) {
-    console.error('Delete product error:', error);
-    return NextResponse.json({ error: 'Failed to delete product' }, { status: 500 });
+    return NextResponse.json({ message: 'Order cancelled successfully' });
+  } catch (error: any) {
+    console.error('Delete order error:', error);
+    return NextResponse.json({ error: error.message || 'Failed to cancel order' }, { status: 500 });
   }
 }
