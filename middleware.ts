@@ -28,12 +28,20 @@ export async function middleware(request: NextRequest) {
 
   const { data: { session } } = await supabase.auth.getSession()
 
-  // Protected routes
-  if (!session && request.nextUrl.pathname.startsWith('/merchant')) {
+  // Public paths that don't require authentication
+  const publicPaths = ['/login', '/register', '/', '/api/auth']
+  const isPublicPath = publicPaths.some(path => request.nextUrl.pathname.startsWith(path))
+  
+  // Merchant paths that require authentication
+  const merchantPaths = ['/merchant']
+  const isMerchantPath = merchantPaths.some(path => request.nextUrl.pathname.startsWith(path))
+
+  // If trying to access merchant area without session
+  if (isMerchantPath && !session) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // Redirect if already logged in
+  // If logged in and trying to access login/register, redirect to home
   if (session && (request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/register')) {
     return NextResponse.redirect(new URL('/', request.url))
   }
@@ -42,5 +50,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
 }
