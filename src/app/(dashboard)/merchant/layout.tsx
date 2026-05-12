@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { createClient } from '../../..//lib/supabase/client';
 import Link from 'next/link';
-import { createClient } from '../../../lib/supabase/client';
 import { 
   LayoutDashboard, 
   Package, 
@@ -25,44 +25,87 @@ export default function MerchantLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [merchant, setMerchant] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
   const supabase = createClient();
 
   useEffect(() => {
-    checkAuth();
+    checkMerchantAccess();
   }, []);
 
-  async function checkAuth() {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      router.push('/login');
-      return;
-    }
+  async function checkMerchantAccess() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        console.log('No user found, redirecting to login');
+        router.push('/login');
+        return;
+      }
 
-    // Check if user has merchant role
-    const { data: roles } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id);
+      setUser(user);
 
-    const isMerchant = roles?.some(r => r.role === 'merchant');
-    
-    if (!isMerchant) {
-      toast.error('You do not have merchant access');
+      // Check if merchant exists in merchants table
+      const { data: merchantData, error: merchantError } = await supabase
+        .from('merchants')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      console.log('Merchant check result:', { merchantData, merchantError });
+
+      if (merchantError || !merchantData) {
+        console.log('No merchant found, trying to create...');
+        
+        // Try to create merchant profile automatically
+        const businessName = user.user_metadata?.full_name || user.email?.split('@')[0];
+        const slug = businessName?.toLowerCase().replace(/[^a-zA-Z0-9]+/g, '-');
+        
+        const { data: newMerchant, error: createError } = await supabase
+          .from('merchants')
+          .insert({
+            user_id: user.id,
+            business_name: businessName,
+            slug: slug,
+            is_active: true
+          })
+          .select()
+          .single();
+        
+        if (createError) {
+          console.error('Failed to create merchant:', createError);
+          toast.error('Merchant account not found. Please contact support.');
+          router.push('/');
+          return;
+        }
+        
+        console.log('Merchant created successfully:', newMerchant);
+        setMerchant(newMerchant);
+        setLoading(false);
+        return;
+      }
+
+      if (!merchantData.is_active) {
+        toast.error('Your merchant account is inactive.');
+        router.push('/');
+        return;
+      }
+
+      setMerchant(merchantData);
+      setLoading(false);
+      
+    } catch (error) {
+      console.error('Error checking merchant access:', error);
+      toast.error('Something went wrong');
       router.push('/');
-      return;
+      setLoading(false);
     }
+  }
 
-    // Get merchant profile
-    const { data: merchantData } = await supabase
-      .from('merchants')
-      .select('*')
-      .eq('user_id', user.id)
-      .single();
-
-    setUser(user);
-    setMerchant(merchantData);
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    toast.success('Logged out successfully');
+    router.push('/');
   }
 
   const menuItems = [
@@ -73,11 +116,33 @@ export default function MerchantLayout({
     { href: '/merchant/settings', label: 'Settings', icon: Settings },
   ];
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    toast.success('Logged out successfully');
-    router.push('/');
-  };
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading merchant dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!merchant) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Store className="w-8 h-8 text-red-600" />
+          </div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">No Merchant Account</h2>
+          <p className="text-gray-600 mb-4">You don't have a merchant account yet.</p>
+          <Link href="/" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+            Go to Home
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -98,12 +163,20 @@ export default function MerchantLayout({
           {/* Sidebar header */}
           <div className="p-6 border-b">
             <div className="flex items-center gap-3">
-              <Store className="w-8 h-8 text-blue-600" />
+              {merchant.business_logo ? (
+                <img 
+                  src={merchant.business_logo} 
+                  alt={merchant.business_name}
+                  className="w-10 h-10 rounded-full object-cover"
+                />
+              ) : (
+                <Store className="w-8 h-8 text-blue-600" />
+              )}
               <div>
-                <h2 className="text-xl font-bold text-gray-800">
-                  {merchant?.business_name || 'Merchant Panel'}
+                <h2 className="text-lg font-bold text-gray-800 truncate max-w-[150px]">
+                  {merchant.business_name}
                 </h2>
-                <p className="text-sm text-gray-500">{user?.email}</p>
+                <p className="text-xs text-gray-500">{user?.email}</p>
               </div>
             </div>
           </div>

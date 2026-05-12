@@ -1,43 +1,40 @@
-import { createClient } from "../../../../lib/supabase/server";
-import { NextRequest, NextResponse } from "next/server";
+import { createClient } from '../../../../lib/supabase/server';
+import { makeUserMerchant } from '../../../../lib/supabase/roles';
+import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-
-    const {
-      email,
-      password,
-      full_name,
-      user_type,
+    const { 
+      email, 
+      password, 
+      full_name, 
+      as_merchant,
       business_name,
       business_address,
-      phone_number,
+      phone_number
     } = body;
 
-    // Validate required fields
-    if (!email || !password || !full_name || !user_type) {
+    if (!email || !password || !full_name) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: 'Missing required fields' },
         { status: 400 }
       );
     }
 
-    // ✅ IMPORTANT: await here (fix .from error)
+    // ১. createClient() এর আগে await যোগ করা হয়েছে
     const supabase = await createClient();
 
     // Register user with Supabase Auth
-    const { data: authData, error: authError } =
-      await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name,
-            user_type,
-          },
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name,
         },
-      });
+      },
+    });
 
     if (authError) {
       return NextResponse.json(
@@ -48,96 +45,61 @@ export async function POST(request: NextRequest) {
 
     if (!authData.user) {
       return NextResponse.json(
-        { error: "User creation failed" },
+        { error: 'User creation failed' },
         { status: 400 }
       );
     }
 
-    const userId = authData.user.id;
-
-    // Insert into users table
-    const { error: userError } = await supabase
-      .from("users")
-      .insert({
-        id: userId,
-        email,
-        full_name,
-        user_type,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
-
-    if (userError) {
-      await supabase.auth.admin.deleteUser(userId);
-
-      return NextResponse.json(
-        { error: userError.message },
-        { status: 400 }
-      );
-    }
-
-    // If merchant → create merchant profile
-    if (user_type === "merchant") {
+    // If merchant, add merchant role and profile
+    if (as_merchant) {
       if (!business_name) {
-        await supabase.auth.admin.deleteUser(userId);
-        await supabase.from("users").delete().eq("id", userId);
-
+        // Rollback: delete the auth user
+        await supabase.auth.admin.deleteUser(authData.user.id);
         return NextResponse.json(
-          { error: "Business name is required for merchants" },
+          { error: 'Business name is required for merchants' },
           { status: 400 }
         );
       }
-
-      const slug = business_name
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "-")
-        .replace(/-+/g, "-")
-        .replace(/^-|-$/g, "");
-
-      const { error: merchantError } = await supabase
-        .from("merchants")
-        .insert({
-          user_id: userId,
-          business_name,
-          business_address: business_address || null,
-          phone_number: phone_number || null,
-          slug,
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-
-      if (merchantError) {
-        await supabase.auth.admin.deleteUser(userId);
-        await supabase.from("users").delete().eq("id", userId);
-
+      
+      const success = await makeUserMerchant(authData.user.id, business_name);
+      
+      if (!success) {
+        await supabase.auth.admin.deleteUser(authData.user.id);
         return NextResponse.json(
-          { error: merchantError.message },
-          { status: 400 }
+          { error: 'Failed to create merchant profile' },
+          { status: 500 }
         );
+      }
+      
+      // Update merchant details
+      if (business_address || phone_number) {
+        await supabase
+          .from('merchants')
+          .update({
+            business_address: business_address || null,
+            business_phone: phone_number || null,
+          })
+          .eq('user_id', authData.user.id);
       }
     }
 
-    // Sign out after register
+    // Sign out the user (they need to login manually)
     await supabase.auth.signOut();
 
-    return NextResponse.json(
-      {
-        message: "User created successfully. Please login to continue.",
-        user: {
-          id: userId,
-          email,
-          full_name,
-          user_type,
-        },
+    return NextResponse.json({
+      message: 'Registration successful! Please login.',
+      user: {
+        id: authData.user.id,
+        email,
+        full_name,
+        is_merchant: as_merchant,
       },
-      { status: 201 }
-    );
-  } catch (error) {
-    console.error("Registration error:", error);
+    }, { status: 201 });
 
+  } catch (error: any) {
+    console.error('Registration error:', error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: error.message || 'Internal server error' },
       { status: 500 }
     );
   }

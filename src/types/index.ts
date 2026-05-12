@@ -1,12 +1,17 @@
-export interface User {
+// Role Types
+export interface Role {
+  id: string;
+  name: 'admin' | 'merchant' | 'customer';
+  description: string;
+}
+
+export interface Profile {
   id: string;
   email: string;
   full_name: string;
-  is_merchant: boolean;
-  is_customer: boolean;
   avatar_url?: string;
-  provider?: string;
-  provider_id?: string;
+  phone_number?: string;
+  address?: string;
   created_at: string;
   updated_at: string;
 }
@@ -14,35 +19,29 @@ export interface User {
 export interface UserRole {
   id: string;
   user_id: string;
-  role: 'merchant' | 'customer';
-  created_at: string;
+  role_id: string;
+  role?: Role;
 }
 
 export interface Merchant {
   id: string;
   user_id: string;
-  user_role_id?: string;
   business_name: string;
   business_description?: string;
   business_logo?: string;
   business_cover?: string;
   business_address?: string;
-  phone_number?: string;
-  is_active: boolean;
+  business_phone?: string;
   slug: string;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }
 
-// Update Register Form Data
-export interface RegisterFormData {
-  full_name: string;
-  email: string;
-  password?: string;
-  confirm_password?: string;
-  as_merchant: boolean;
-  business_name?: string;
-  business_address?: string;
-  phone_number?: string;
-  provider?: 'email' | 'google';
+// Extended User with roles
+export interface AuthenticatedUser extends Profile {
+  roles: string[];
+  isMerchant: boolean;
+  isCustomer: boolean;
+  isAdmin: boolean;
 }
